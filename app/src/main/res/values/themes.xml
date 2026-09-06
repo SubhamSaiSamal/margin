@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <color name="paper">#F7F5EF</color>
+    <color name="ink">#191D24</color>
+
+    <style name="Theme.Margin" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@color/paper</item>
+        <item name="android:navigationBarColor">@color/paper</item>
+        <item name="android:windowBackground">@color/paper</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+
+</resources>

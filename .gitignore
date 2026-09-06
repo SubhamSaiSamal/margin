@@ -1,0 +1,12 @@
+*.iml
+.gradle/
+build/
+local.properties
+.idea/
+.DS_Store
+node_modules/
+*.log
+.vercel
+captures/
+.externalNativeBuild/
+.cxx/
