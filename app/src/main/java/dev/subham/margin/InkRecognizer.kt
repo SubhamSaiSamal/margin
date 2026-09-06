@@ -52,12 +52,11 @@ class InkRecognizer {
      *
      * [areaWidth] and [areaHeight] describe the surface the ink was written on.
      * The recogniser uses them to work out the scale of the handwriting, and
-     * accuracy is noticeably worse without them.
-     */
-    /**
-     * [preContext] is the line written above this one. The recogniser uses it to
-     * bias its predictions, which matters here because algebra lines resemble
-     * the line before them far more than they resemble ordinary English.
+     * gets noticeably worse without them.
+     *
+     * [preContext] is the line written above this one, which biases predictions
+     * — algebra lines resemble the line before them far more than they resemble
+     * ordinary English.
      */
     suspend fun readAll(
         ink: Ink,
@@ -97,53 +96,3 @@ class InkRecognizer {
 
     fun close() = recognizer.close()
 }
-
-/** Cleans up a reading into something the parser has a chance with. */
-fun tidyForAlgebra(raw: String): String =
-    raw.replace('×', '*')
-        .replace('÷', '/')
-        .replace('−', '-')
-        .replace('–', '-')
-        .replace('—', '-')
-        // A handwritten decimal point is frequently read as a comma, and in a
-        // number a comma is never a separator here.
-        .replace(Regex("""(?<=\d),(?=\d)"""), ".")
-        .replace('·', '.')
-        .replace('•', '.')
-        .replace("^", "")
-        .replace(Regex("""\s+"""), "")
-        .trim()
-
-/** Characters a handwriting model habitually mixes up in an algebra context. */
-private fun unconfuse(text: String): String =
-    text.map { ch ->
-        when (ch) {
-            'l', 'I', '|' -> '1'
-            'O', 'o' -> '0'
-            'S' -> '5'
-            'Z' -> '2'
-            '×', '*', 'X' -> 'x'
-            else -> ch
-        }
-    }.joinToString("")
-
-/**
- * The best reading that is actually parseable as an equation.
- *
- * The top-ranked candidate is frequently not the algebra one — the model is a
- * general text recogniser and has no idea it is looking at maths. Preferring a
- * lower-ranked candidate that parses is a large, cheap accuracy win.
- */
-fun pickEquation(candidates: List<String>): String? {
-    val cleaned = candidates.map { tidyForAlgebra(it) }.filter { it.isNotBlank() }
-
-    cleaned.firstOrNull { parses(it) }?.let { return it }
-    cleaned.map(::unconfuse).firstOrNull { parses(it) }?.let { return it }
-
-    // Nothing parsed, so show the best guess anyway — a visible wrong reading is
-    // far more useful to the writer than silence.
-    return cleaned.firstOrNull()
-}
-
-private fun parses(text: String): Boolean =
-    runCatching { parseEquation(text) }.isSuccess

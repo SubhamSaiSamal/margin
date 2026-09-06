@@ -52,17 +52,36 @@ class MainActivity : ComponentActivity() {
     private var speaker: TextToSpeech? = null
     private val recognizer = InkRecognizer()
 
+    /** Null until the engine reports back; false if this phone cannot speak. */
+    private val canSpeak = mutableStateOf<Boolean?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Not every phone ships a working engine, and a tutor that is supposed
+        // to talk failing silently is worse than one that admits it cannot.
         speaker = TextToSpeech(this) { status ->
-            if (status == TextToSpeech.SUCCESS) speaker?.language = Locale.UK
+            val ready = status == TextToSpeech.SUCCESS
+            if (ready) {
+                val language = speaker?.setLanguage(Locale.UK)
+                val missing = language == TextToSpeech.LANG_MISSING_DATA ||
+                    language == TextToSpeech.LANG_NOT_SUPPORTED
+                if (missing) speaker?.setLanguage(Locale.getDefault())
+                Log.i(LOG, "tts ready, language=$language")
+            } else {
+                Log.e(LOG, "tts unavailable, status=$status")
+            }
+            canSpeak.value = ready
         }
 
         setContent {
             MarginApp(
                 recognizer = recognizer,
-                say = { line -> speaker?.speak(line, TextToSpeech.QUEUE_FLUSH, null, "margin") },
+                canSpeak = canSpeak.value,
+                say = { line ->
+                    val result = speaker?.speak(line, TextToSpeech.QUEUE_FLUSH, null, "margin")
+                    Log.i(LOG, "say(\"$line\") -> $result")
+                },
             )
         }
     }
@@ -75,7 +94,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun MarginApp(recognizer: InkRecognizer, say: (String) -> Unit) {
+fun MarginApp(recognizer: InkRecognizer, canSpeak: Boolean?, say: (String) -> Unit) {
     // Keyed by ruled-line index, so what you write lands on the line you wrote it on.
     val lines = remember { mutableMapOf<Int, WrittenLine>() }
 
@@ -220,7 +239,7 @@ fun MarginApp(recognizer: InkRecognizer, say: (String) -> Unit) {
                 style = TextStyle(color = Ink, fontSize = 17.sp, fontWeight = FontWeight.SemiBold),
             )
             Text(
-                text = status,
+                text = if (canSpeak == false) "$status · no voice" else status,
                 modifier = Modifier.fillMaxWidth().padding(end = 60.dp),
                 style = TextStyle(color = Graphite, fontSize = 11.sp, textAlign = TextAlign.End),
             )
