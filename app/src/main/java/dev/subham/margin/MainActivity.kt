@@ -178,7 +178,7 @@ fun MarginApp(
 
         // Speak only the newest complaint, and only once.
         val newest = lines.entries
-            .filter { it.value.holds == false && it.value.hint != null }
+            .filter { it.value.hint != null }
             .maxByOrNull { it.key }
 
         if (newest != null && newest.key != spoken) {
@@ -230,15 +230,25 @@ fun MarginApp(
 
         // Verdicts sit in the margin, beside the handwriting that caused them.
         lines.forEach { (row, line) ->
-            val holds = line.holds
-            if (holds != null) {
+            val verdict = line.verdict
+            if (verdict != null) {
                 Text(
-                    text = if (holds) "✓" else "✗",
+                    text = when (verdict) {
+                        Verdict.BROKEN -> "✗"
+                        // Drift is not a failure of this line, so it is not a
+                        // cross. It is a tick with a question hanging off it.
+                        Verdict.DRIFTED -> "✓?"
+                        else -> "✓"
+                    },
                     modifier = Modifier
                         .offset(y = ROW_HEIGHT * row + ROW_HEIGHT * 0.34f)
                         .width(MARGIN_X),
                     style = TextStyle(
-                        color = if (holds) InkBlue else RedPen,
+                        color = when (verdict) {
+                            Verdict.BROKEN -> RedPen
+                            Verdict.DRIFTED -> Graphite
+                            else -> InkBlue
+                        },
                         fontSize = 19.sp,
                         textAlign = TextAlign.Center,
                     ),
@@ -249,7 +259,7 @@ fun MarginApp(
             // Tapping it throws that one line away rather than the whole page.
             line.reading?.let { reading ->
                 Text(
-                    text = if (line.holds == false && line.hint != null) line.hint!! else reading,
+                    text = line.hint ?: reading,
                     modifier = Modifier
                         .offset(y = ROW_HEIGHT * row + ROW_HEIGHT * 0.04f)
                         .fillMaxWidth()
@@ -261,7 +271,10 @@ fun MarginApp(
                         }
                         .padding(end = 14.dp, top = 4.dp, bottom = 4.dp),
                     style = TextStyle(
-                        color = if (line.holds == false) RedPen else Graphite,
+                        color = when (line.verdict) {
+                            Verdict.BROKEN -> RedPen
+                            else -> Graphite
+                        },
                         fontSize = 12.sp,
                         textAlign = TextAlign.End,
                     ),
@@ -305,59 +318,30 @@ fun MarginApp(
 }
 
 /**
- * Judge every readable line against the readable line above it. Re-run from
- * scratch each time, so correcting an earlier line fixes everything below it.
+ * Judge the page, then write the results back onto the rows.
+ *
+ * The reasoning itself lives in [judgeLines], shared with the camera and voice
+ * paths so all three are held to identical standards.
  */
 fun judge(lines: Map<Int, WrittenLine>) {
-    var previous: String? = null
+    val ordered = lines.entries.sortedBy { it.key }
 
-    lines.entries.sortedBy { it.key }.forEach { (_, line) ->
-        val reading = line.reading
+    ordered.forEach { entry ->
+        entry.value.verdict = null
+        entry.value.hint = null
+        entry.value.finding = null
+    }
 
-        if (reading == null) {
-            line.holds = null
-            line.hint = null
-            line.finding = null
-            return@forEach
-        }
+    val readable = ordered.filter { entry ->
+        val reading = entry.value.reading
+        reading != null && runCatching { parseEquation(reading) }.isSuccess
+    }
 
-        val parses = runCatching { parseEquation(reading) }.isSuccess
-        if (!parses) {
-            line.holds = null
-            line.hint = null
-            line.finding = null
-            return@forEach
-        }
+    val judged = judgeLines(readable.mapNotNull { it.value.reading })
 
-        val above = previous
-        if (above == null) {
-            // The first readable line is the premise; there is nothing to disagree with.
-            line.holds = true
-            line.hint = null
-            line.finding = null
-        } else if (runCatching { equivalent(above, reading) }.getOrDefault(false)) {
-            line.holds = true
-            line.hint = null
-            line.finding = null
-        } else {
-            line.holds = false
-            line.finding = runCatching { diagnose(above, reading) }.getOrDefault(Finding.Unclear)
-            line.hint = hintFor(above, reading)
-        }
-
-        previous = reading
+    readable.zip(judged).forEach { (entry, result) ->
+        entry.value.verdict = result.verdict
+        entry.value.finding = result.finding
+        entry.value.hint = wordFor(result)
     }
 }
-
-/** What to ask about, without ever handing over the answer. */
-fun hintFor(previous: String, current: String): String =
-    when (val finding = runCatching { diagnose(previous, current) }.getOrDefault(Finding.Unclear)) {
-        is Finding.Sign -> "check the sign on the ${trimNumber(finding.value)}"
-        Finding.LostVariable -> "an unknown went missing"
-        Finding.VariableTerm -> "check what happened to the letters"
-        Finding.Constant -> "check the numbers you carried across"
-        Finding.Unclear -> "check this against the line above"
-    }
-
-private fun trimNumber(value: Double): String =
-    if (value == value.toLong().toDouble()) value.toLong().toString() else value.toString()

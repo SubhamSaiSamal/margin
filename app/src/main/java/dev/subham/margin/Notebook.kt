@@ -42,8 +42,8 @@ class WrittenLine {
     /** What the recogniser last made of it. */
     var reading: String? = null
 
-    /** Whether it follows from the line above. Null until it has been judged. */
-    var holds: Boolean? = null
+    /** How it fared against the line above and the premise. Null until judged. */
+    var verdict: Verdict? = null
 
     /** Set when the line does not follow, and spoken once. */
     var hint: String? = null
