@@ -54,6 +54,13 @@ dependencies {
     // Gemma on the phone, for phrasing hints. The verdict never comes from it.
     implementation("com.google.mediapipe:tasks-genai:0.10.27")
 
+    // The camera path: point the phone at paper instead of writing on glass.
+    implementation("com.google.mlkit:text-recognition:16.0.1")
+    implementation("androidx.camera:camera-core:1.4.0")
+    implementation("androidx.camera:camera-camera2:1.4.0")
+    implementation("androidx.camera:camera-lifecycle:1.4.0")
+    implementation("androidx.camera:camera-view:1.4.0")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
 }
