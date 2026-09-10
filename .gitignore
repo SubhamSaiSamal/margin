@@ -11,3 +11,6 @@ captures/
 .externalNativeBuild/
 .cxx/
 .claude/
+
+# Gemma model, 555MB. Never commit this.
+*.task

@@ -51,6 +51,9 @@ dependencies {
     // Stroke-based handwriting, recognised on the device with no network.
     implementation("com.google.mlkit:digital-ink-recognition:18.1.0")
 
+    // Gemma on the phone, for phrasing hints. The verdict never comes from it.
+    implementation("com.google.mediapipe:tasks-genai:0.10.27")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
 }

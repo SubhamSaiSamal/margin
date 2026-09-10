@@ -33,7 +33,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import java.util.Locale
 
 // The deck's palette, so the app and the pitch are visibly one product.
@@ -51,6 +53,7 @@ class MainActivity : ComponentActivity() {
 
     private var speaker: TextToSpeech? = null
     private val recognizer = InkRecognizer()
+    private val hintWriter by lazy { HintWriter(this) }
 
     /** Null until the engine reports back; false if this phone cannot speak. */
     private val canSpeak = mutableStateOf<Boolean?>(null)
@@ -77,6 +80,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             MarginApp(
                 recognizer = recognizer,
+                hintWriter = hintWriter,
                 canSpeak = canSpeak.value,
                 say = { line ->
                     val result = speaker?.speak(line, TextToSpeech.QUEUE_FLUSH, null, "margin")
@@ -89,12 +93,18 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         speaker?.shutdown()
         recognizer.close()
+        hintWriter.close()
         super.onDestroy()
     }
 }
 
 @Composable
-fun MarginApp(recognizer: InkRecognizer, canSpeak: Boolean?, say: (String) -> Unit) {
+fun MarginApp(
+    recognizer: InkRecognizer,
+    hintWriter: HintWriter,
+    canSpeak: Boolean?,
+    say: (String) -> Unit,
+) {
     // Keyed by ruled-line index, so what you write lands on the line you wrote it on.
     val lines = remember { mutableMapOf<Int, WrittenLine>() }
 
@@ -105,6 +115,8 @@ fun MarginApp(recognizer: InkRecognizer, canSpeak: Boolean?, say: (String) -> Un
     var surface by remember { mutableStateOf(IntSize.Zero) }
     val rowPx = with(LocalDensity.current) { ROW_HEIGHT.toPx() }
 
+    var gemma by remember { mutableStateOf(false) }
+
     LaunchedEffect(Unit) {
         status = try {
             if (!recognizer.isReady()) recognizer.prepare()
@@ -112,6 +124,13 @@ fun MarginApp(recognizer: InkRecognizer, canSpeak: Boolean?, say: (String) -> Un
         } catch (error: Exception) {
             "model unavailable"
         }
+    }
+
+    // Gemma takes tens of seconds to load, so it happens once, in the
+    // background, long before anyone is looking at the screen.
+    LaunchedEffect(Unit) {
+        if (!hintWriter.isModelPresent()) return@LaunchedEffect
+        gemma = withContext(Dispatchers.Default) { hintWriter.load() }
     }
 
     // Resting the pen is the signal. Every new stroke restarts this.
@@ -164,6 +183,26 @@ fun MarginApp(recognizer: InkRecognizer, canSpeak: Boolean?, say: (String) -> Un
 
         if (newest != null && newest.key != spoken) {
             spoken = newest.key
+
+            // Gemma re-words the finding if it is loaded. The finding itself was
+            // settled by algebra; this only changes how it is asked. If anything
+            // goes wrong the deterministic wording is already in place.
+            val above = lines.entries
+                .filter { it.key < newest.key && it.value.reading != null }
+                .maxByOrNull { it.key }?.value?.reading
+
+            val finding = newest.value.finding
+            val reading = newest.value.reading
+
+            if (hintWriter.isLoaded && above != null && finding != null && reading != null) {
+                withContext(Dispatchers.Default) {
+                    hintWriter.phrase(above, reading, finding)
+                }?.let { worded ->
+                    newest.value.hint = worded
+                    revision++
+                }
+            }
+
             newest.value.hint?.let(say)
         }
     }
@@ -239,7 +278,11 @@ fun MarginApp(recognizer: InkRecognizer, canSpeak: Boolean?, say: (String) -> Un
                 style = TextStyle(color = Ink, fontSize = 17.sp, fontWeight = FontWeight.SemiBold),
             )
             Text(
-                text = if (canSpeak == false) "$status · no voice" else status,
+                text = buildString {
+                    append(status)
+                    if (gemma) append(" · gemma")
+                    if (canSpeak == false) append(" · no voice")
+                },
                 modifier = Modifier.fillMaxWidth().padding(end = 60.dp),
                 style = TextStyle(color = Graphite, fontSize = 11.sp, textAlign = TextAlign.End),
             )
@@ -274,6 +317,7 @@ fun judge(lines: Map<Int, WrittenLine>) {
         if (reading == null) {
             line.holds = null
             line.hint = null
+            line.finding = null
             return@forEach
         }
 
@@ -281,6 +325,7 @@ fun judge(lines: Map<Int, WrittenLine>) {
         if (!parses) {
             line.holds = null
             line.hint = null
+            line.finding = null
             return@forEach
         }
 
@@ -289,11 +334,14 @@ fun judge(lines: Map<Int, WrittenLine>) {
             // The first readable line is the premise; there is nothing to disagree with.
             line.holds = true
             line.hint = null
+            line.finding = null
         } else if (runCatching { equivalent(above, reading) }.getOrDefault(false)) {
             line.holds = true
             line.hint = null
+            line.finding = null
         } else {
             line.holds = false
+            line.finding = runCatching { diagnose(above, reading) }.getOrDefault(Finding.Unclear)
             line.hint = hintFor(above, reading)
         }
 

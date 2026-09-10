@@ -48,6 +48,9 @@ class WrittenLine {
     /** Set when the line does not follow, and spoken once. */
     var hint: String? = null
 
+    /** What the engine established, kept so the hint can be re-worded later. */
+    var finding: Finding? = null
+
     /** Strokes have changed since the last reading. */
     var pending: Boolean = false
 }
